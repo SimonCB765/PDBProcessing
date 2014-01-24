@@ -102,42 +102,43 @@ def main(mmCIFDir, parsedPDB, blastExecutables, daysSinceLastUpdate=7):
     # Update altered chains. #
     ##########################
     # Only care about updates when the sequence has changed (as this is the only thing that affects the similarity).
-    chainsWithSimilaritiesToAlter = set([])
-    for i in updatedChains:
-        c.execute('SELECT sequence FROM ProteinInformation WHERE chain=?', (i,))
-        result = c.fetchone()
-        if result and result[0] == proteinDict[i]['sequence']:
-            # If the sequences are the same, then just update the info in the record.
-            c.execute('DELETE FROM ProteinInformation WHERE chain=?', (i,))
-            tupleToAdd = (i, proteinDict[i]['entry'], proteinDict[i]['experimentalType'], proteinDict[i]['resolution'], proteinDict[i]['rFactorObs'],
-                          proteinDict[i]['rFactorFree'], 1 if proteinDict[i]['onlyAlphaCarbon'] else 0, proteinDict[i]['description'], proteinDict[i]['dbName'],
-                          proteinDict[i]['dbCode'], proteinDict[i]['scientificName'], proteinDict[i]['sequence'])
-            c.execute('INSERT INTO ProteinInformation VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', tupleToAdd)
-            conn.commit()
-        elif not i in existingProteinChains:
-            # If the chain is not an existing protein chain, then there is nothing to update.
-            pass
-        else:
-            # Treat the chain as if it was just added (and also delete its information first).
-            addedChains |= set([i])
-            deletedChains |= set([i])
+    if updatedChains:
+        sequenceUnchanged = set([])
+        for i in updatedChains:
+            c.execute('SELECT sequence FROM ProteinInformation WHERE chain=?', (i,))
+            result = c.fetchone()
+            if result and result[0] == proteinDict[i]['sequence']:
+                # If the sequences are the same, then just update the info in the record.
+                sequenceUnchanged.add(i)
+            elif not i in existingProteinChains:
+                # If the chain is not an existing protein chain, then there is nothing to update.
+                pass
+            else:
+                # Treat the chain as if it was just added (and also delete its information first).
+                addedChains |= set([i])
+                deletedChains |= set([i])
+
+        # Change the recorded details of all updated chains where the sequence has not changed.
+        c.executemany('DELETE FROM ProteinInformation WHERE chain=?', [(i,) for i in sequenceUnchanged])
+        tuplesToAdd = [(i, proteinDict[i]['entry'], proteinDict[i]['experimentalType'], proteinDict[i]['resolution'], proteinDict[i]['rFactorObs'],
+                        proteinDict[i]['rFactorFree'], 1 if proteinDict[i]['onlyAlphaCarbon'] else 0, proteinDict[i]['description'], proteinDict[i]['dbName'],
+                        proteinDict[i]['dbCode'], proteinDict[i]['scientificName'], proteinDict[i]['sequence']) for i in sequenceUnchanged]
+        c.executemany('INSERT INTO ProteinInformation VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', tuplesToAdd)
+        conn.commit()
 
     ######################
     # Delete old chains. #
     ######################
-    c.executemany('DELETE FROM ChainTypes WHERE chain=?', [(i,) for i in deletedChains])
-    c.executemany('DELETE FROM ProteinInformation WHERE chain=?', [(i,) for i in deletedChains])
-    c.executemany('DELETE FROM Similarities WHERE chainA=?', [(i,) for i in deletedChains])
-    c.executemany('DELETE FROM Similarities WHERE chainB=?', [(i,) for i in deletedChains])
-    conn.commit()
+    if deletedChains:
+        c.executemany('DELETE FROM ChainTypes WHERE chain=?', [(i,) for i in deletedChains])
+        c.executemany('DELETE FROM ProteinInformation WHERE chain=?', [(i,) for i in deletedChains])
+        c.executemany('DELETE FROM Similarities WHERE chainA=?', [(i,) for i in deletedChains])
+        c.executemany('DELETE FROM Similarities WHERE chainB=?', [(i,) for i in deletedChains])
+        conn.commit()
 
     ###################
     # Add new chains. #
     ###################
-    # Add the type information for the new chains.
-    typeTuplesToAdd = [(i, typeDict[i]) for i in addedChains]
-    c.executemany('INSERT INTO ChainTypes VALUES (?, ?)', typeTuplesToAdd)
-
     # Check if any of the new protein chains are identical to ones already recorded.
     addedProteinChains = set([i for i in addedChains if typeDict[i] == 'Protein'])
     identicalAddedProteinChains = set([])
@@ -149,17 +150,19 @@ def main(mmCIFDir, parsedPDB, blastExecutables, daysSinceLastUpdate=7):
             identicalAddedProteinChains.add(i)
             identicalChain = result[0]
             c.execute('SELECT * FROM Similarities WHERE chainA=?', (identicalChain,))
-            chainASimilarities = [j[0] for j in c.fetchall()]
+            chainASimilarities = [list(j) for j in c.fetchall()]
             for j in chainASimilarities:
                 j[0] = i
+            c.executemany('INSERT INTO Similarities VALUES (?, ?, ?, ?, ?, ?)', [tuple(j) for j in chainASimilarities])
             c.execute('SELECT * FROM Similarities WHERE chainB=?', (identicalChain,))
-            chainBSimilarities = [j[0] for j in c.fetchall()]
+            chainBSimilarities = [list(j) for j in c.fetchall()]
             for j in chainBSimilarities:
                 j[2] = i
-            allChainSimilarities = set([])
-            allChainSimilarities |= set(chainASimilarities)
-            allChainSimilarities |= set(chainBSimilarities)
-            c.executemany('INSERT INTO Similarities VALUES (?, ?, ?, ?, ?, ?)', allChainSimilarities)
+            c.executemany('INSERT INTO Similarities VALUES (?, ?, ?, ?, ?, ?)', [tuple(j) for j in chainBSimilarities])
+
+    # Add the type information for the new chains.
+    typeTuplesToAdd = [(i, typeDict[i]) for i in addedChains]
+    c.executemany('INSERT INTO ChainTypes VALUES (?, ?)', typeTuplesToAdd)
 
     # Add the protein information for the new chains.
     protInfoTuplesToAdd = [(i, proteinDict[i]['entry'], proteinDict[i]['experimentalType'], proteinDict[i]['resolution'], proteinDict[i]['rFactorObs'],
@@ -223,12 +226,10 @@ def main(mmCIFDir, parsedPDB, blastExecutables, daysSinceLastUpdate=7):
         # Generate BLAST databases.
         existingDatabaseDir = parsedPDB + '/ExistingDatabase'
         os.mkdir(existingDatabaseDir)
-        os.mkdir(existingDatabaseDir + '/TempDB')
         makeDBArgs = [blastExecutables + '/makeblastdb', '-in', existingChainsFASTA, '-out', existingDatabaseDir + '/TempDB', '-dbtype', 'prot']
         subprocess.call(makeDBArgs, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
         addedDatabaseDir = parsedPDB + '/AddedDatabase'
         os.mkdir(addedDatabaseDir)
-        os.mkdir(addedDatabaseDir + '/TempDB')
         makeDBArgs = [blastExecutables + '/makeblastdb', '-in', addedChainsFASTA, '-out', addedDatabaseDir + '/TempDB', '-dbtype', 'prot']
         subprocess.call(makeDBArgs, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
@@ -293,8 +294,6 @@ def main(mmCIFDir, parsedPDB, blastExecutables, daysSinceLastUpdate=7):
     protInfoResult = c.fetchall()
     c.execute('SELECT * FROM ChainTypes')
     chainTypeResult = c.fetchall()
-    c.execute('SELECT * FROM Similarities')
-    similarityResult = c.fetchall()
 
     # Generate PDB entries file.
     allEntries = set([i[1] for i in protInfoResult])
@@ -334,7 +333,7 @@ def main(mmCIFDir, parsedPDB, blastExecutables, daysSinceLastUpdate=7):
 
     # Generate similarities file.
     writeSimilarities = open(fileSimilarity, 'w')
-    for i in similarityResult:
+    for i in c.execute('SELECT * FROM Similarities'):
         writeSimilarities.write('\t'.join([str(j) for j in i]) + '\n')
     writeSimilarities.close()
 
