@@ -1,3 +1,4 @@
+import gzip
 import os
 import sqlite3
 import sys
@@ -38,7 +39,7 @@ def main(parsedPDB, leafLocation):
         if resolution == 100.0:
             includeNonXray = True
             includeCAOnly = True
-        selectedChains = selectchains.main(maxRes=resolution, maxRVal=rValue, includeNonXray=includeNonXray, includeCAOnly=includeCAOnly)
+        selectedChains = selectchains.main(maxRes=resolution, maxRVal=rValue, minLength=40, includeNonXray=includeNonXray, includeCAOnly=includeCAOnly)
 
         # Determine similarities between chains.
         chainString = '\',\''.join(selectedChains)
@@ -73,10 +74,10 @@ def main(parsedPDB, leafLocation):
             xrayCAInfo = '_INCLNONXRAY'
         if includeCAOnly:
             xrayCAInfo += '_INCLCAONLY'
-        outputLocation = subsetsDir + '/SeqIden_' + str(seqIdentity) + '_Res_' + str(resolution) + '_RVal_' + str(rValue) + xrayCAInfo + '.gz'
-        writeKept = open(outputLocation, 'w')
-        for i in keptChainInfo:
-            sequence = i[-1]
-            writeKept.write('>' + i[0] + '\t' + str(len(sequence)) + '\t' + i[2] + '\t' + str(i[3]) + '\t' + str(i[4]) + '\t' + str(i[5]) + '\t' +
-                            ('no' if i[6] == 0 else 'yes') + '\t' + i[7] + '\t<' + i[8] + ' ' + i[9] + '>\t[' + i[10] + ']\n' + sequence + '\n')
-        writeKept.close()
+        outputLocation = subsetsDir + '/SeqIden_' + str(seqIdentity) + '_Res_' + str(resolution) + '_RVal_' + str(rValue) + xrayCAInfo + '.fasta.gz'
+        with gzip.open(outputLocation, 'w') as writeKept:
+            for i in keptChainInfo:
+                sequence = i[-1]
+                writeKept.write(bytes('>' + i[0] + '\t' + str(len(sequence)) + '\t' + i[2] + '\t' + str(i[3]) + '\t' + str(i[4]) + '\t' + str(i[5]) + '\t' +
+                                      ('no' if i[6] == 0 else 'yes') + '\t' + i[7] + '\t<' + i[8] + ' ' + i[9] + '>\t[' + i[10] + ']\n' + sequence + '\n',
+                                      'UTF-8'))
