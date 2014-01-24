@@ -30,27 +30,25 @@ def main(organism=None, minRes=0.0, maxRes=3.0, maxRVal=0.5, minLength=None, max
     for i in result:
         chain = i[0]
         sequence = i[-1]
-        if sequence in representatives:
-            pass  # Only need to record one representative chain.
-        else:
-            representatives[sequence] = chain
+        seqLen = len(sequence)
+        lengthOK = True
 
-    # Remove chains that are too short or long.
-    if minLength and maxLength:
-        for i in representatives:
-            seqLen = len(i)
+        # Determine if the chain meets the length criteria.
+        if minLength and maxLength:
             if seqLen < minLength or seqLen > maxLength:
-                del representatives[i]
-    elif minLength:
-        for i in representatives:
-            seqLen = len(i)
+                lengthOK = False
+        elif minLength:
             if seqLen < minLength:
-                del representatives[i]
-    elif maxLength:
-        for i in representatives:
-            seqLen = len(i)
+                lengthOK = False
+        elif maxLength:
             if seqLen > maxLength:
-                del representatives[i]
+                lengthOK = False
+
+        if lengthOK:
+            if sequence in representatives:
+                pass  # Only need to record one representative chain.
+            else:
+                representatives[sequence] = chain
 
     # Return the chains found.
     return sorted([representatives[i] for i in representatives])
