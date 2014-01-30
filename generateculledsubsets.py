@@ -45,7 +45,7 @@ def main(parsedPDB, leafLocation):
         chainString = '\',\''.join(selectedChains)
         conn = sqlite3.connect('Leaf.db')
         c = conn.cursor()
-        c.execute('SELECT chainA, chainB FROM Similarities WHERE chainA IN (\'' + chainString + '\') AND chainB IN (\'' + chainString + '\')')
+        c.execute('SELECT chainA, chainB FROM Similarities WHERE chainA IN (\'' + chainString + '\') AND chainB IN (\'' + chainString + '\') AND similarity >= ?', (seqIdentity,))
         result = c.fetchall()
         c.close()
 
