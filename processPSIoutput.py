@@ -34,7 +34,7 @@ def main(PSIoutput):
                             # If the pair exists and the recorded similarity is less than the newly found one, then update the record.
                             similaritiesFound[pair]['Identity'] = hitsFound[hit]['Identity']
                             similaritiesFound[pair]['MatchLength'] = hitsFound[hit]['MatchLength']
-                        else:
+                        elif not pair in similaritiesFound:
                             # If the pair does not exist, then record the information about it.
                             similaritiesFound[pair] = {'Identity' : hitsFound[hit]['Identity'], 'MatchLength' : hitsFound[hit]['MatchLength']}
             currentQuery = nextQuery
