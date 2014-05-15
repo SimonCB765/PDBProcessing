@@ -1,9 +1,6 @@
 import gzip
 import os
-import sqlite3
 import sys
-
-import selectchains
 
 def main(parsedPDB, leafLocation):
     """
@@ -32,52 +29,67 @@ def main(parsedPDB, leafLocation):
         resolution = i[0]
         rValue = i[1]
         seqIdentity = i[2]
-        includeNonXray = False
-        includeCAOnly = False
+        includeNonXrayAndCAOnly = 1 if resolution == 100.0 else 0
 
         # Determine the chains that meet the criteria.
-        if resolution == 100.0:
-            includeNonXray = True
-            includeCAOnly = True
-        selectedChains = selectchains.main(maxRes=resolution, maxRVal=rValue, minLength=40, includeNonXray=includeNonXray, includeCAOnly=includeCAOnly)
+        toCull = {}
+        fileChains = parsedPDB + '/Chains.tsv'
+        readChains = open(fileChains, 'r')
+        readChains.readline()  # Strip the header.
+        for line in readChains:
+            chunks = (line.strip()).split('\t')
+            chain = chunks[0]
+            res = float(chunks[1])
+            rVal = float(chunks[2])
+            seqLen = int(chunks[3])
+            nonXRay = 1 if chunks[4] == 'yes' else 0
+            alphaCarbonOnly = 1 if chunks[5] == 'yes' else 0
+            reprGroup = chunks[6]
+            if (res <= resolution) and (rVal <= rValue) and (seqLen >= 40) and (nonXRay <= includeNonXrayAndCAOnly) and (alphaCarbonOnly <= includeNonXrayAndCAOnly):
+                toCull[reprGroup] = chain
+        readChains.close()
 
-        # Determine similarities between chains.
-        chainString = '\',\''.join(selectedChains)
-        conn = sqlite3.connect('Leaf.db')
-        c = conn.cursor()
-        c.execute('SELECT chainA, chainB FROM Similarities WHERE chainA IN (\'' + chainString + '\') AND chainB IN (\'' + chainString + '\') AND similarity >= ?', (seqIdentity,))
-        result = c.fetchall()
-        c.close()
+        # Determine similarities between representative groups that need culling.
+        vertexPairs = [[], []]
+        fileSimilarity = parsedPDB + '/Similarity.tsv'
+        readSimilarity = open(fileSimilarity, 'r')
+        readSimilarity.readlines()  # Strip header.
+        for line in readSimilarity:
+            chunks = (line.strip()).split('\t')
+            source = chunks[0]
+            target = chunks[1]
+            if source in toCull and target in toCull and float(chunks[3]) >= seqIdentity:
+                vertexPairs[0].append(toCull[source])
+                vertexPairs[1].append(toCull[target])
+        readSimilarity.close()
 
         # Generate the adjacency list.
-        indexDict = dict((selectedChains[x], x) for x in range(len(selectedChains)))
-        adjacent = sparsematrix.SparseMatrix(len(selectedChains))
-        vertexPairs = list(zip(*result))
+        chainsToCull = list(toCull.values())
+        indexDict = dict((x, index) for index, x in enumerate(chainsToCull))
+        adjacent = sparsematrix.SparseMatrix(len(chainsToCull))
         sourceVertices = [indexDict[x] for x in vertexPairs[0]]
         targetVertices = [indexDict[x] for x in vertexPairs[1]]
         adjacent.addlist(sourceVertices, targetVertices)
         adjacent.addlist(targetVertices, sourceVertices)
 
         # Perform the culling.
-        chainsToCull, chainsToKeep = Leafcull.main(adjacent, selectedChains)
+        chainsToRemove, chainsToKeep = Leafcull.main(adjacent, chainsToCull)
 
-        # Get data on the kept chains.
-        conn = sqlite3.connect('Leaf.db')
-        c = conn.cursor()
-        c.execute('SELECT * FROM ProteinInformation WHERE chain IN (\'' + '\',\''.join(chainsToKeep) + '\')')
-        keptChainInfo = c.fetchall()
-        c.close()
-
-        # Write out the results.
-        xrayCAInfo = ''
-        if includeNonXray:
-            xrayCAInfo = '_INCLNONXRAY'
-        if includeCAOnly:
-            xrayCAInfo += '_INCLCAONLY'
+        # Write out the kept chains.
+        xrayCAInfo = '_INCLNONXRAY_INCLCAONLY' if includeNonXrayAndCAOnly else ''
         outputLocation = subsetsDir + '/SeqIden_' + str(seqIdentity) + '_Res_' + str(resolution) + '_RVal_' + str(rValue) + xrayCAInfo + '.fasta.gz'
         with gzip.open(outputLocation, 'w') as writeKept:
-            for i in keptChainInfo:
-                sequence = i[-1]
-                writeKept.write(bytes('>' + i[0] + '\t' + str(len(sequence)) + '\t' + i[2] + '\t' + str(i[3]) + '\t' + str(i[4]) + '\t' + str(i[5]) + '\t' +
-                                      ('no' if i[6] == 0 else 'yes') + '\t' + i[7] + '\t<' + i[8] + ' ' + i[9] + '>\t[' + i[10] + ']\n' + sequence + '\n',
-                                      'UTF-8'))
+            fileAllFasta = parsedPDB + '/AllChains.fasta'
+            readAllFasta = open(fileAllFasta, 'r')
+            while True:
+                # Read the file two lines at a time.
+                identifierLine = readAllFasta.readline()
+                sequence = readAllFasta.readline()
+                if not sequence:
+                    # Reached the end of the file when there is no second line.
+                    break
+
+                chain = identifierLine[1:6]  # Get the chain identifier.
+                if chain in chainsToKeep:
+                    writeKept.write(bytes(identifierLine + sequence, 'UTF-8'))
+            readAllFasta.close()
