@@ -2,12 +2,12 @@ import gzip
 import re
 
 def main(mmCIFFile):
-    """Parse an mmCIF file.
+    """Parse an mmCIF file that records one PDB entry in it.
 
-    Only parses a single file. Parses files that record only one PDB entry in them.
-
-    @param mmCIFFile: The location of the gzipped mmCIF file to parse.
-    @type mmCIFFile: string
+    :param mmCIFFile:   The location of the gzipped mmCIF file to parse.
+    :type mmCIFFile:    string
+    :returns :          Tree structure of the mmCIF record along with the data.
+    :type :             dictionary
 
     """
 

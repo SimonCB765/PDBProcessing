@@ -1,15 +1,14 @@
 import gzip
 import os
-import sys
+import Leafcull
 
-def main(parsedPDB, leafLocation):
-    """
-    """
+def main(parsedPDB):
+    """Cull the entire PDB at different quality criterion.
 
-    # Import the portions of the Leaf culling that are needed.
-    sys.path.append(leafLocation)
-    import sparsematrix
-    import Leafcull
+    :param parsedPDB:   The directory where the results of the culling will be written.
+    :type parsedPDB:    string
+
+    """
 
     # Create the directory to hold the culled subsets.
     subsetsDir = parsedPDB + '/CulledSubsets'
@@ -17,8 +16,8 @@ def main(parsedPDB, leafLocation):
         os.mkdir(subsetsDir)
 
     # Define the combinations of resolution, r value and sequence identity to use.
-    resolutionsOfInterest = [1.6, 1.8, 2.0, 2.2, 2.5, 3.0]
-    rValuesOfInterest = [0.25, 1.0]
+    resolutionsOfInterest = [1.6, 1.8, 2.0, 2.2, 2.4, 2.5, 2.6, 2.8, 3.0]
+    rValuesOfInterest = [0.25, 0.5, 0.75, 1.0]
     sequenceIdentities = [20, 25, 30, 40, 50, 60, 70, 80, 90]
     tuplesToDo = [(i, j, k) for i in resolutionsOfInterest for j in rValuesOfInterest for k in sequenceIdentities]
     tuplesToDo.extend([(100.0, 1.0, i) for i in sequenceIdentities])
@@ -50,30 +49,29 @@ def main(parsedPDB, leafLocation):
         readChains.close()
 
         # Determine similarities between representative groups that need culling.
-        vertexPairs = [[], []]
+        adjList = {}
         fileSimilarity = parsedPDB + '/Similarity.tsv'
         readSimilarity = open(fileSimilarity, 'r')
         readSimilarity.readlines()  # Strip header.
         for line in readSimilarity:
             chunks = (line.strip()).split('\t')
-            source = chunks[0]
-            target = chunks[1]
-            if source in toCull and target in toCull and float(chunks[3]) >= seqIdentity:
-                vertexPairs[0].append(toCull[source])
-                vertexPairs[1].append(toCull[target])
+            chainA = chunks[0]
+            chainB = chunks[1]
+            if chainA in toCull and chainB in toCull and float(chunks[3]) >= seqIdentity:
+                # The sequences are in the set to be culled and are too similar.
+                if chainA in adjList:
+                    adjList[chainA].add(chainB)
+                else:
+                    adjList[chainA] = set([chainB])
+                if chainB in adjList:
+                    adjList[chainB].add(chainA)
+                else:
+                    adjList[chainB] = set([chainA])
         readSimilarity.close()
 
-        # Generate the adjacency list.
-        chainsToCull = list(toCull.values())
-        indexDict = dict((x, index) for index, x in enumerate(chainsToCull))
-        adjacent = sparsematrix.SparseMatrix(len(chainsToCull))
-        sourceVertices = [indexDict[x] for x in vertexPairs[0]]
-        targetVertices = [indexDict[x] for x in vertexPairs[1]]
-        adjacent.addlist(sourceVertices, targetVertices)
-        adjacent.addlist(targetVertices, sourceVertices)
-
         # Perform the culling.
-        chainsToRemove, chainsToKeep = Leafcull.main(adjacent, chainsToCull)
+        chainsToRemove = Leafcull.main(adjList)
+        chainsToKeep = [toCull[i] for i in toCull if not i in chainsToRemove]
 
         # Write out the kept chains.
         xrayCAInfo = '_INCLNONXRAY_INCLCAONLY' if includeNonXrayAndCAOnly else ''

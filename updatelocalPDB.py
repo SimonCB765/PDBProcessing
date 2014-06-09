@@ -1,13 +1,20 @@
 import os
 import shutil
 import subprocess
-import sys
 
 import parsePDBmmCIF
 import processPSIoutput
 
 def main(mmCIFDir, parsedPDB, blastExecutables):
-    """
+    """Process the entire PDB in order to extract the relevant information about the proteins in it.
+
+    :param mmCIFDir:            The directory containing the mmCIF files for the PDB.
+    :type mmCIFDir:             string
+    :param parsedPDB:           The directory where the results of the parsing and culling will be written.
+    :type parsedPDB:            string
+    :param blastExecutables:    The location of the BLAST+ executables.
+    :type blastExecutables:     string
+
     """
 
     # Define output files in the TSV format expected by the App Engine bulk uploader (TSV with header).
@@ -129,16 +136,16 @@ def main(mmCIFDir, parsedPDB, blastExecutables):
 def sequence_BLAST(inputFile, outputFile, database, BLASTLoc, cores):
     """Will BLAST a given input file.
 
-    @param inputFile: The FASTA file which needs to be submitted to PSI-BLAST.
-    @type inputFile: string
-    @param outputFile: The location to write the results of the BLASTing.
-    @type outputFile: string
-    @param database: The database to BLAST the inputFile protein against
-    @param database: string
-    @param BLASTLoc: The location of the PSI-BLAST executable.
-    @type BLASTLoc: string
-    @param cores: The number of threads to create to run BLAST with.
-    @type cores: character
+    :param inputFile:   The FASTA file which needs to be submitted to PSI-BLAST.
+    :type inputFile:    string
+    :param outputFile:  The location to write the results of the BLASTing.
+    :type outputFile:   string
+    :param database:    The database to BLAST the inputFile protein against
+    :param database:    string
+    :param BLASTLoc:    The location of the PSI-BLAST executable.
+    :type BLASTLoc:     string
+    :param cores:       The number of threads to create to run BLAST with.
+    :type cores:        character
 
     """
 
